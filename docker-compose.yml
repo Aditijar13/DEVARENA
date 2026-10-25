@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: devarena-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-devarena123}
+      MONGO_INITDB_DATABASE: devarena
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - devarena-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: devarena-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - devarena-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devarena-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-devarena123}@mongodb:27017/devarena?authSource=admin
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      SERVER_URL: ${SERVER_URL:-http://localhost:5000}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend/logs:/app/logs
+    networks:
+      - devarena-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000/api}
+        REACT_APP_SOCKET_URL: ${REACT_APP_SOCKET_URL:-http://localhost:5000}
+    container_name: devarena-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - devarena-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  devarena-network:
+    driver: bridge
